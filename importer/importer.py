@@ -110,8 +110,8 @@ class WSPRImporter:
                 "code": int(row[14])
             }
 
-            sql = "EXECUTE wsprspots_exists(%d);" % values["spot_id"]
-            cursor.execute(sql)
+            sql = "EXECUTE wsprspots_exists(%s);"
+            cursor.execute(sql, (values["spot_id"],))
             rows = cursor.fetchall()
 
             db_function = DB_FUNCTION_INSERT
@@ -128,27 +128,25 @@ class WSPRImporter:
                 elif db_function == DB_FUNCTION_UPDATE:
                     self._count_update += 1
 
-                sql = "EXECUTE %s " \
-                      "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
-                          db_function,
-                          values["spot_id"],
-                          values["timestamp"],
-                          values["reporter"],
-                          values["reporter_grid"],
-                          values["snr"],
-                          values["frequency"],
-                          values["call_sign"],
-                          values["grid"],
-                          values["power"],
-                          values["drift"],
-                          values["distance"],
-                          values["azimuth"],
-                          values["band"],
-                          values["version"],
-                          values["code"]
-                      )
+                sql = "EXECUTE %s (%%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s);" % db_function
 
-                cursor.execute(sql)
+                cursor.execute(sql, (
+                    values["spot_id"],
+                    values["timestamp"],
+                    values["reporter"],
+                    values["reporter_grid"],
+                    values["snr"],
+                    values["frequency"],
+                    values["call_sign"],
+                    values["grid"],
+                    values["power"],
+                    values["drift"],
+                    values["distance"],
+                    values["azimuth"],
+                    values["band"],
+                    values["version"],
+                    values["code"]
+                ))
 
             if self._count % IMPORT_LOG_INTERVAL == 0:
                 self._db_conn.commit()

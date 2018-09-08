@@ -62,10 +62,10 @@ class WSPRServer:
 
         sql = "SELECT id, datetime, reporter, reporter_grid, snr, frequency, callsign, grid, power, drift, distance, azimuth, band, sw_ver, code " \
               "FROM wsprspots ws " \
-              "WHERE ws.callsign = '%s' " \
+              "WHERE ws.callsign = %s " \
               "ORDER BY datetime DESC " \
-              "LIMIT 20;" % callsign
-        cursor.execute(sql)
+              "LIMIT 20;"
+        cursor.execute(sql, (callsign,))
         rows = cursor.fetchall()
 
         spots = [{
