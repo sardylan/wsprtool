@@ -88,7 +88,7 @@ class WSPRTool:
         count_lines = len(raw_lines)
         sys.stderr.write("Lines to import: %d\n" % count_lines)
 
-        csv_content = csv.reader(raw_lines)
+        csv_content = csv.reader(raw_lines, escapechar='\\')
 
         connection_string = "host='127.0.0.1' port=5432 user='wspr' password='wspr' dbname='wspr'"
         conn = psycopg2.connect(connection_string)
