@@ -110,96 +110,111 @@ class WSPRTool:
         count_update = 0
         ts_start = datetime.datetime.now()
 
-        for row in csv_content:
-            values = {
-                "spot_id": int(row[0]),
-                "timestamp": int(row[1]),
-                "reporter": row[2],
-                "reporter_grid": row[3],
-                "snr": int(row[4]),
-                "frequency": int(float(row[5]) * 1000000),
-                "call_sign": row[6],
-                "grid": row[7],
-                "power": int(row[8]),
-                "drift": int(row[9]),
-                "distance": int(row[10]),
-                "azimuth": int(row[11]),
-                "band": int(row[12]),
-                "version": row[13],
-                "code": int(row[14])
-            }
+        try:
+            for row in csv_content:
+                values = {
+                    "spot_id": int(row[0]),
+                    "timestamp": int(row[1]),
+                    "reporter": row[2],
+                    "reporter_grid": row[3],
+                    "snr": int(row[4]),
+                    "frequency": int(float(row[5]) * 1000000),
+                    "call_sign": row[6],
+                    "grid": row[7],
+                    "power": int(row[8]),
+                    "drift": int(row[9]),
+                    "distance": int(row[10]),
+                    "azimuth": int(row[11]),
+                    "band": int(row[12]),
+                    "version": row[13],
+                    "code": int(row[14])
+                }
 
-            sql = "EXECUTE wsprspots_exists(%d);" % values["spot_id"]
-            cursor.execute(sql)
-            rows = cursor.fetchall()
+                sql = "EXECUTE wsprspots_exists(%d);" % values["spot_id"]
+                cursor.execute(sql)
+                rows = cursor.fetchall()
 
-            db_function = "wsprspots_insert"
-            if rows[0][0] > 0:
-                db_function = "wsprspots_update"
+                db_function = "wsprspots_insert"
+                if rows[0][0] > 0:
+                    db_function = "wsprspots_update"
 
-            if db_function == "wsprspots_insert":
-                count_insert += 1
-            if db_function == "wsprspots_update":
-                count_update += 1
+                if db_function == "wsprspots_insert":
+                    count_insert += 1
+                if db_function == "wsprspots_update":
+                    count_update += 1
 
-            sql = "EXECUTE %s " \
-                  "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
-                      db_function,
-                      values["spot_id"],
-                      values["timestamp"],
-                      values["reporter"],
-                      values["reporter_grid"],
-                      values["snr"],
-                      values["frequency"],
-                      values["call_sign"],
-                      values["grid"],
-                      values["power"],
-                      values["drift"],
-                      values["distance"],
-                      values["azimuth"],
-                      values["band"],
-                      values["version"],
-                      values["code"]
-                  )
+                sql = "EXECUTE %s " \
+                      "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
+                          db_function,
+                          values["spot_id"],
+                          values["timestamp"],
+                          values["reporter"],
+                          values["reporter_grid"],
+                          values["snr"],
+                          values["frequency"],
+                          values["call_sign"],
+                          values["grid"],
+                          values["power"],
+                          values["drift"],
+                          values["distance"],
+                          values["azimuth"],
+                          values["band"],
+                          values["version"],
+                          values["code"]
+                      )
 
-            cursor.execute(sql)
+                cursor.execute(sql)
 
-            if count % IMPORT_LOG_INTERVAL == 0:
-                ts_end = datetime.datetime.now()
+                if count % IMPORT_LOG_INTERVAL == 0:
+                    ts_end = datetime.datetime.now()
 
-                ts_delta = ts_end - ts_start
-                time_avg = ((ts_delta.seconds * 1000000) + ts_delta.microseconds) / IMPORT_LOG_INTERVAL
+                    ts_delta = ts_end - ts_start
+                    time_avg = ((ts_delta.seconds * 1000000) + ts_delta.microseconds) / IMPORT_LOG_INTERVAL
 
-                count_remaining = count_lines - count
-                time_remaining = time_avg * count_remaining
-                time_remaining_delta = datetime.timedelta(microseconds=time_remaining)
-                time_remaining_str = str(time_remaining_delta)
+                    count_remaining = count_lines - count
+                    count_percentage = float(count / count_lines) * 100
 
-                eta = datetime.datetime.now() + time_remaining_delta
-                eta_str = str(eta)
+                    time_remaining = time_avg * count_remaining
+                    time_remaining_delta = datetime.timedelta(microseconds=time_remaining)
+                    time_remaining_str = str(time_remaining_delta)
 
-                sys.stderr.write("Line %d of %s ("
-                                 "inserts: %d - "
-                                 "update: %d - "
-                                 "Avg time per row: %.03f ms - "
-                                 "Remaining: %s - "
-                                 "ETA: %s"
-                                 ")\n" % (
-                                     count, count_lines,
-                                     count_insert,
-                                     count_update,
-                                     float(time_avg / 1000),
-                                     time_remaining_str,
-                                     eta_str
-                                 ))
+                    eta = datetime.datetime.now() + time_remaining_delta
+                    eta_str = str(eta)
 
-                count_insert = 0
-                count_update = 0
-                ts_start = datetime.datetime.now()
+                    sys.stderr.write("Line %d of %s ("
+                                     "inserts: %d - "
+                                     "update: %d - "
+                                     "Completed: %.01f%% - "
+                                     "Avg time per row: %.03f ms - "
+                                     "Remaining: %s - "
+                                     "ETA: %s"
+                                     ")\n" % (
+                                         count, count_lines,
+                                         count_insert,
+                                         count_update,
+                                         count_percentage,
+                                         float(time_avg / 1000),
+                                         time_remaining_str,
+                                         eta_str
+                                     ))
 
-                conn.commit()
+                    count_insert = 0
+                    count_update = 0
+                    ts_start = datetime.datetime.now()
 
-            count += 1
+                    conn.commit()
+
+                count += 1
+        except psycopg2.Error as e:
+            sys.stderr.write("\n")
+            sys.stderr.write("ERROR importing row: %d - %s\n" % e.pgcode, e.pgerror)
+            sys.stderr.write("SQL: %s\n" % sql)
+            sys.stderr.write("\n")
+            sys.stderr.write("\n")
+            sys.stderr.write(
+                "Line %d of %s (inserts: %d - update: %d)\n" % (count, count_lines, count_insert, count_update))
+            sys.stderr.write("\n")
+            self.error()
 
         sys.stderr.write(
             "Line %d of %s (inserts: %d - update: %d)\n" % (count, count_lines, count_insert, count_update))
@@ -214,10 +229,13 @@ class WSPRTool:
     @staticmethod
     def error(message=""):
         sys.stderr.write("\n")
-        sys.stderr.write("\n")
-        sys.stderr.write("ERROR!!!\n")
-        sys.stderr.write("%s\n" % message)
-        sys.stderr.write("\n")
+
+        if message:
+            sys.stderr.write("\n")
+            sys.stderr.write("ERROR!!!\n")
+            sys.stderr.write("%s\n" % message)
+            sys.stderr.write("\n")
+
         sys.exit(1)
 
     @staticmethod
