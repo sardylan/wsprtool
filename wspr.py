@@ -207,7 +207,7 @@ class WSPRTool:
                 count += 1
         except psycopg2.Error as e:
             sys.stderr.write("\n")
-            sys.stderr.write("ERROR importing row: %d - %s\n" % e.pgcode, e.pgerror)
+            sys.stderr.write("ERROR importing row: %s - %s\n" % e.pgcode, e.pgerror)
             sys.stderr.write("SQL: %s\n" % sql)
             sys.stderr.write("\n")
             sys.stderr.write("\n")
