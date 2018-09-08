@@ -103,6 +103,8 @@ class WSPRTool:
         cursor.execute(sql)
 
         c = 0
+        c_insert = 0
+        c_update = 0
         for row in csv_content:
             values = {
                 "spot_id": int(row[0]),
@@ -130,6 +132,11 @@ class WSPRTool:
             if rows[0][0] > 0:
                 db_function = "wsprspots_update"
 
+            if db_function == "wsprspots_insert":
+                c_insert += 1
+            if db_function == "wsprspots_update":
+                c_update += 1
+
             sql = "EXECUTE %s " \
                   "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
                       db_function,
@@ -152,16 +159,22 @@ class WSPRTool:
 
             cursor.execute(sql)
 
-            if c % 1000 == 0 or c + 1 == count_lines:
-                sys.stderr.write("Line %d of %s\n" % (c, count_lines))
+            if c % 1000 == 0:
+                sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, c_insert, c_update))
+                c_insert = 0
+                c_update = 0
+
                 conn.commit()
 
             c += 1
 
+        sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, c_insert, c_update))
+
         conn.commit()
         conn.close()
 
-        sys.stderr.write("Import completed")
+        sys.stderr.write("Import completed\n")
+        sys.stderr.write("\n")
 
     @staticmethod
     def error(message=""):
