@@ -18,6 +18,7 @@ class WSPRTool:
         self._mode = MODE_SERVE
 
         self._file = ""
+        self._update = False
 
     def main(self):
         self.check_opt()
@@ -33,8 +34,11 @@ class WSPRTool:
         try:
             opts, args = getopt.getopt(
                 sys.argv[1:],
-                "hisy:m:",
-                ["help", "import", "serve", "file="]
+                "hisy:f:u",
+                [
+                    "help", "import", "serve",
+                    "file=", "update"
+                ]
             )
         except getopt.GetoptError as err:
             sys.stderr.write(str(err))
@@ -51,6 +55,8 @@ class WSPRTool:
                 self._mode = MODE_SERVE
             elif param in ("-f", "--file"):
                 self._file = value
+            elif param in ("-u", "--update"):
+                self._update = True
 
     def print_config(self):
         sys.stderr.write("Mode: %s\n" % self._mode)
@@ -138,32 +144,37 @@ class WSPRTool:
                 if rows[0][0] > 0:
                     db_function = "wsprspots_update"
 
-                if db_function == "wsprspots_insert":
-                    count_insert += 1
-                if db_function == "wsprspots_update":
-                    count_update += 1
+                todo = True
+                if db_function == "wsprspots_update" and not self._update:
+                    todo = False
 
-                sql = "EXECUTE %s " \
-                      "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
-                          db_function,
-                          values["spot_id"],
-                          values["timestamp"],
-                          values["reporter"],
-                          values["reporter_grid"],
-                          values["snr"],
-                          values["frequency"],
-                          values["call_sign"],
-                          values["grid"],
-                          values["power"],
-                          values["drift"],
-                          values["distance"],
-                          values["azimuth"],
-                          values["band"],
-                          values["version"],
-                          values["code"]
-                      )
+                if todo:
+                    if db_function == "wsprspots_insert":
+                        count_insert += 1
+                    elif db_function == "wsprspots_update":
+                        count_update += 1
 
-                cursor.execute(sql)
+                    sql = "EXECUTE %s " \
+                          "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
+                              db_function,
+                              values["spot_id"],
+                              values["timestamp"],
+                              values["reporter"],
+                              values["reporter_grid"],
+                              values["snr"],
+                              values["frequency"],
+                              values["call_sign"],
+                              values["grid"],
+                              values["power"],
+                              values["drift"],
+                              values["distance"],
+                              values["azimuth"],
+                              values["band"],
+                              values["version"],
+                              values["code"]
+                          )
+
+                    cursor.execute(sql)
 
                 if count % IMPORT_LOG_INTERVAL == 0:
                     ts_end = datetime.datetime.now()
@@ -181,25 +192,17 @@ class WSPRTool:
                     eta = datetime.datetime.now() + time_remaining_delta
                     eta_str = str(eta)
 
-                    sys.stderr.write("Line %d of %s ("
-                                     "inserts: %d - "
-                                     "update: %d - "
-                                     "Progress: %.01f%% - "
-                                     "Avg time per row: %.03f ms - "
-                                     "Remaining: %s - "
-                                     "ETA: %s"
-                                     ")\n" % (
-                                         count, count_lines,
-                                         count_insert,
-                                         count_update,
-                                         count_percentage,
-                                         float(time_avg / 1000),
-                                         time_remaining_str,
-                                         eta_str
-                                     ))
+                    self.print_progress(
+                        count,
+                        count_insert,
+                        count_lines,
+                        count_percentage,
+                        count_update,
+                        eta_str,
+                        time_avg,
+                        time_remaining_str
+                    )
 
-                    count_insert = 0
-                    count_update = 0
                     ts_start = datetime.datetime.now()
 
                     conn.commit()
@@ -216,8 +219,15 @@ class WSPRTool:
             sys.stderr.write("\n")
             self.error()
 
-        sys.stderr.write(
-            "Line %d of %s (inserts: %d - update: %d)\n" % (count, count_lines, count_insert, count_update))
+        count_percentage = 100
+
+        self.print_progress(
+            count,
+            count_insert,
+            count_lines,
+            count_percentage,
+            count_update
+        )
 
         conn.commit()
         conn.close()
@@ -225,6 +235,31 @@ class WSPRTool:
         sys.stderr.write("\n")
         sys.stderr.write("Import completed\n")
         sys.stderr.write("\n")
+
+    @staticmethod
+    def print_progress(
+            count,
+            count_insert,
+            count_lines,
+            count_percentage,
+            count_update,
+            eta_str="",
+            time_avg=0,
+            time_remaining_str=""
+    ):
+        line_info = [
+            "I:%d" % count_insert,
+            "D:%d" % count_update,
+            "Progress: %d%%" % count_percentage
+        ]
+
+        if count_percentage < 100:
+            line_info.append("Avg time per row: %.03f ms" % float(time_avg / 1000))
+            line_info.append("Remaining: %s" % time_remaining_str)
+            line_info.append("ETA: %s" % eta_str)
+
+        line = "Line %d of %d (%s)\n" % (count, count_lines, " - ".join(line_info))
+        sys.stderr.write(line)
 
     @staticmethod
     def error(message=""):
