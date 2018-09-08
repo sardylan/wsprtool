@@ -105,7 +105,7 @@ class WSPRTool:
               "WHERE id = $1;"
         cursor.execute(sql)
 
-        c = 0
+        count = 0
         count_insert = 0
         count_update = 0
         ts_start = datetime.datetime.now()
@@ -164,15 +164,34 @@ class WSPRTool:
 
             cursor.execute(sql)
 
-            if c % IMPORT_LOG_INTERVAL == 0:
+            if count % IMPORT_LOG_INTERVAL == 0:
                 ts_end = datetime.datetime.now()
 
                 ts_delta = ts_end - ts_start
                 time_avg = ((ts_delta.seconds * 1000000) + ts_delta.microseconds) / IMPORT_LOG_INTERVAL
 
-                sys.stderr.write("Line %d of %s (inserts: %d - update: %d - Avg time per row: %.03f ms)\n" % (
-                    c, count_lines, count_insert, count_update, float(time_avg / 1000)
-                ))
+                count_remaining = count_lines - count
+                time_remaining = time_avg * count_remaining
+                time_remaining_delta = datetime.timedelta(microseconds=time_remaining)
+                time_remaining_str = str(time_remaining_delta)
+
+                eta = datetime.datetime.now() + time_remaining_delta
+                eta_str = str(eta)
+
+                sys.stderr.write("Line %d of %s ("
+                                 "inserts: %d - "
+                                 "update: %d - "
+                                 "Avg time per row: %.03f ms - "
+                                 "Remaining: %s - "
+                                 "ETA: %s"
+                                 ")\n" % (
+                                     count, count_lines,
+                                     count_insert,
+                                     count_update,
+                                     float(time_avg / 1000),
+                                     time_remaining_str,
+                                     eta_str
+                                 ))
 
                 count_insert = 0
                 count_update = 0
@@ -180,13 +199,15 @@ class WSPRTool:
 
                 conn.commit()
 
-            c += 1
+            count += 1
 
-        sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, count_insert, count_update))
+        sys.stderr.write(
+            "Line %d of %s (inserts: %d - update: %d)\n" % (count, count_lines, count_insert, count_update))
 
         conn.commit()
         conn.close()
 
+        sys.stderr.write("\n")
         sys.stderr.write("Import completed\n")
         sys.stderr.write("\n")
 
