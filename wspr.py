@@ -1,16 +1,22 @@
-import csv
-import datetime
 import getopt
-import gzip
-import os
+import logging
 import sys
 
-import psycopg2
+from importer.importer import WSPRImporter
+from server.server import WSPRServer
 
 MODE_IMPORT = "import"
 MODE_SERVE = "serve"
 
 IMPORT_LOG_INTERVAL = 1000
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)5s] - %(message)s",
+    level=logging.DEBUG,
+    datefmt="%Y%m%d-%H%M%S"
+)
+
+_logger = logging.getLogger(__name__)
 
 
 class WSPRTool:
@@ -19,6 +25,9 @@ class WSPRTool:
 
         self._file = ""
         self._update = False
+
+        self._port = 13254
+        self._db_conn_str = "host='127.0.0.1' port=5432 user='wspr' password='wspr' dbname='wspr'"
 
     def main(self):
         self.check_opt()
@@ -34,10 +43,11 @@ class WSPRTool:
         try:
             opts, args = getopt.getopt(
                 sys.argv[1:],
-                "hisy:f:u",
+                "hisy:f:up:",
                 [
                     "help", "import", "serve",
-                    "file=", "update"
+                    "file=", "update",
+                    "port="
                 ]
             )
         except getopt.GetoptError as err:
@@ -57,221 +67,22 @@ class WSPRTool:
                 self._file = value
             elif param in ("-u", "--update"):
                 self._update = True
+            elif param in ("-p", "--port"):
+                self._port = int(value)
 
     def print_config(self):
-        sys.stderr.write("Mode: %s\n" % self._mode)
+        _logger.info("Mode: %s" % self._mode)
 
         if self._mode == MODE_IMPORT:
-            sys.stderr.write("File: %s\n" % self._file)
-
-        sys.stderr.write("\n")
+            _logger.info("File: %s" % self._file)
 
     def start_serve(self):
-        sys.stderr.write("Starting serving data\n")
+        server = WSPRServer(self._db_conn_str, self._port)
+        server.start()
 
     def start_import(self):
-        sys.stderr.write("Starting importing data\n")
-
-        if not os.path.isfile(self._file):
-            self.error("File \"%s\" not found\n" % self._file)
-
-        fd = open(self._file, "rb")
-        gzip_content = fd.read()
-        fd.close()
-
-        sys.stderr.write("File size: %d\n" % len(gzip_content))
-
-        raw_content = gzip.decompress(gzip_content)
-        sys.stderr.write("Decompressed size: %d\n" % len(raw_content))
-
-        raw_lines = [x.decode() for x in raw_content.splitlines()]
-        count_lines = len(raw_lines)
-        sys.stderr.write("Lines to import: %d\n" % count_lines)
-
-        csv_content = csv.reader(raw_lines, escapechar='\\')
-
-        connection_string = "host='127.0.0.1' port=5432 user='wspr' password='wspr' dbname='wspr'"
-        conn = psycopg2.connect(connection_string)
-
-        cursor = conn.cursor()
-
-        sql = "PREPARE wsprspots_exists AS " \
-              "SELECT COUNT(id) FROM wsprspots WHERE id = $1;"
-        cursor.execute(sql)
-
-        sql = "PREPARE wsprspots_insert AS " \
-              "INSERT INTO wsprspots (id, datetime, reporter, reporter_grid, snr, frequency, callsign, grid, power, drift, distance, azimuth, band, sw_ver, code) " \
-              "VALUES ($1, to_timestamp($2)::timestamp without time zone, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);"
-        cursor.execute(sql)
-
-        sql = "PREPARE wsprspots_update AS " \
-              "UPDATE wsprspots SET datetime = to_timestamp($2)::timestamp without time zone, reporter = $3, reporter_grid = $4, snr = $5, " \
-              "frequency = $6, callsign = $7, grid = $8, power = $9, drift = $10, distance = $11, azimuth = $12, " \
-              "band = $13, sw_ver = $14, code = $15 " \
-              "WHERE id = $1;"
-        cursor.execute(sql)
-
-        count = 0
-        count_insert = 0
-        count_update = 0
-        ts_start = datetime.datetime.now()
-
-        try:
-            for row in csv_content:
-                values = {
-                    "spot_id": int(row[0]),
-                    "timestamp": int(row[1]),
-                    "reporter": row[2],
-                    "reporter_grid": row[3],
-                    "snr": int(row[4]),
-                    "frequency": int(float(row[5]) * 1000000),
-                    "call_sign": row[6],
-                    "grid": row[7],
-                    "power": int(row[8]),
-                    "drift": int(row[9]),
-                    "distance": int(row[10]),
-                    "azimuth": int(row[11]),
-                    "band": int(row[12]),
-                    "version": row[13],
-                    "code": int(row[14])
-                }
-
-                sql = "EXECUTE wsprspots_exists(%d);" % values["spot_id"]
-                cursor.execute(sql)
-                rows = cursor.fetchall()
-
-                db_function = "wsprspots_insert"
-                if rows[0][0] > 0:
-                    db_function = "wsprspots_update"
-
-                todo = True
-                if db_function == "wsprspots_update" and not self._update:
-                    todo = False
-
-                if todo:
-                    if db_function == "wsprspots_insert":
-                        count_insert += 1
-                    elif db_function == "wsprspots_update":
-                        count_update += 1
-
-                    sql = "EXECUTE %s " \
-                          "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
-                              db_function,
-                              values["spot_id"],
-                              values["timestamp"],
-                              values["reporter"],
-                              values["reporter_grid"],
-                              values["snr"],
-                              values["frequency"],
-                              values["call_sign"],
-                              values["grid"],
-                              values["power"],
-                              values["drift"],
-                              values["distance"],
-                              values["azimuth"],
-                              values["band"],
-                              values["version"],
-                              values["code"]
-                          )
-
-                    cursor.execute(sql)
-
-                if count % IMPORT_LOG_INTERVAL == 0:
-                    ts_end = datetime.datetime.now()
-
-                    ts_delta = ts_end - ts_start
-                    time_avg = ((ts_delta.seconds * 1000000) + ts_delta.microseconds) / IMPORT_LOG_INTERVAL
-
-                    count_remaining = count_lines - count
-                    count_percentage = float(count / count_lines) * 100
-
-                    time_remaining = time_avg * count_remaining
-                    time_remaining_delta = datetime.timedelta(microseconds=time_remaining)
-                    time_remaining_str = str(time_remaining_delta)
-
-                    eta = datetime.datetime.now() + time_remaining_delta
-                    eta_str = str(eta)
-
-                    self.print_progress(
-                        count,
-                        count_insert,
-                        count_lines,
-                        count_percentage,
-                        count_update,
-                        eta_str,
-                        time_avg,
-                        time_remaining_str
-                    )
-
-                    ts_start = datetime.datetime.now()
-
-                    conn.commit()
-
-                count += 1
-        except psycopg2.Error as e:
-            sys.stderr.write("\n")
-            sys.stderr.write("ERROR importing row: %s - %s\n" % (e.pgcode, e.pgerror))
-            sys.stderr.write("SQL: %s\n" % sql)
-            sys.stderr.write("\n")
-            sys.stderr.write("\n")
-            sys.stderr.write(
-                "Line %d of %s (inserts: %d - update: %d)\n" % (count, count_lines, count_insert, count_update))
-            sys.stderr.write("\n")
-            self.error()
-
-        count_percentage = 100
-
-        self.print_progress(
-            count,
-            count_insert,
-            count_lines,
-            count_percentage,
-            count_update
-        )
-
-        conn.commit()
-        conn.close()
-
-        sys.stderr.write("\n")
-        sys.stderr.write("Import completed\n")
-        sys.stderr.write("\n")
-
-    @staticmethod
-    def print_progress(
-            count,
-            count_insert,
-            count_lines,
-            count_percentage,
-            count_update,
-            eta_str="",
-            time_avg=0,
-            time_remaining_str=""
-    ):
-        line_info = [
-            "I:%d" % count_insert,
-            "D:%d" % count_update,
-            "Progress: %d%%" % count_percentage
-        ]
-
-        if count_percentage < 100:
-            line_info.append("Avg time per row: %.03f ms" % float(time_avg / 1000))
-            line_info.append("Remaining: %s" % time_remaining_str)
-            line_info.append("ETA: %s" % eta_str)
-
-        line = "Line %d of %d (%s)\n" % (count, count_lines, " - ".join(line_info))
-        sys.stderr.write(line)
-
-    @staticmethod
-    def error(message=""):
-        sys.stderr.write("\n")
-
-        if message:
-            sys.stderr.write("\n")
-            sys.stderr.write("ERROR!!!\n")
-            sys.stderr.write("%s\n" % message)
-            sys.stderr.write("\n")
-
-        sys.exit(1)
+        importer = WSPRImporter(self._db_conn_str, self._file, self._update)
+        importer.start()
 
     @staticmethod
     def usage():
@@ -291,10 +102,9 @@ class WSPRTool:
         sys.stderr.write("\n")
         sys.stderr.write("Import mode options:\n")
         sys.stderr.write("\n")
-        sys.stderr.write(" -i | --year=<year>              Year of import (must be 4 digits)\n")
-        sys.stderr.write("                                   default to current year\n")
-        sys.stderr.write(" -o | --month=<month>            Month of import\n")
-        sys.stderr.write("                                   default to current month\n")
+        sys.stderr.write(" -i | --file=<filename>          Filename to import (*.csv.gz)\n")
+        sys.stderr.write(" -o | --update                   Enable record update\n")
+        sys.stderr.write("                                   default disabled\n")
         sys.stderr.write("\n")
         sys.stderr.write("\n")
 
