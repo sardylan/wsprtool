@@ -1,4 +1,5 @@
 import csv
+import datetime
 import getopt
 import gzip
 import os
@@ -8,6 +9,8 @@ import psycopg2
 
 MODE_IMPORT = "import"
 MODE_SERVE = "serve"
+
+IMPORT_LOG_INTERVAL = 1000
 
 
 class WSPRTool:
@@ -103,8 +106,10 @@ class WSPRTool:
         cursor.execute(sql)
 
         c = 0
-        c_insert = 0
-        c_update = 0
+        count_insert = 0
+        count_update = 0
+        ts_start = datetime.datetime.now()
+
         for row in csv_content:
             values = {
                 "spot_id": int(row[0]),
@@ -133,9 +138,9 @@ class WSPRTool:
                 db_function = "wsprspots_update"
 
             if db_function == "wsprspots_insert":
-                c_insert += 1
+                count_insert += 1
             if db_function == "wsprspots_update":
-                c_update += 1
+                count_update += 1
 
             sql = "EXECUTE %s " \
                   "(%d, %d, '%s', '%s', %d, %d, '%s', '%s', %d, %d, %d, %d, %d, '%s', %d);" % (
@@ -159,16 +164,25 @@ class WSPRTool:
 
             cursor.execute(sql)
 
-            if c % 1000 == 0:
-                sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, c_insert, c_update))
-                c_insert = 0
-                c_update = 0
+            if c % IMPORT_LOG_INTERVAL == 0:
+                ts_end = datetime.datetime.now()
+
+                ts_delta = ts_end - ts_start
+                time_avg = ((ts_delta.seconds * 1000000) + ts_delta.microseconds) / IMPORT_LOG_INTERVAL
+
+                sys.stderr.write("Line %d of %s (inserts: %d - update: %d - Avg time per row: %.03f ms)\n" % (
+                    c, count_lines, count_insert, count_update, float(time_avg / 1000)
+                ))
+
+                count_insert = 0
+                count_update = 0
+                ts_start = datetime.datetime.now()
 
                 conn.commit()
 
             c += 1
 
-        sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, c_insert, c_update))
+        sys.stderr.write("Line %d of %s (inserts: %d - update: %d)\n" % (c, count_lines, count_insert, count_update))
 
         conn.commit()
         conn.close()
