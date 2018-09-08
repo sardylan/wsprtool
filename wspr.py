@@ -184,7 +184,7 @@ class WSPRTool:
                     sys.stderr.write("Line %d of %s ("
                                      "inserts: %d - "
                                      "update: %d - "
-                                     "Completed: %.01f%% - "
+                                     "Progress: %.01f%% - "
                                      "Avg time per row: %.03f ms - "
                                      "Remaining: %s - "
                                      "ETA: %s"
