@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS wsprspots
   reporter      varchar(24)                 NOT NULL,
   reporter_grid varchar(8)                  NOT NULL,
   snr           int                         NOT NULL,
-  frequency     int                         NOT NULL,
+  frequency     bigint                      NOT NULL,
   callsign      varchar(24)                 NOT NULL,
   grid          varchar(8)                  NOT NULL,
   power         int                         NOT NULL,
@@ -63,3 +63,18 @@ IS 'Version string of the WSPR software in use by the receiving station. May be 
 
 COMMENT ON COLUMN wsprspots.code
 IS 'Archives generated after 22 Dec 2010 have an additional integer Code field. Non-zero values will indicate that the spot is likely to be erroneous (bogus callsign, appears to be wrong band, appears to be an in-band mixing product, etc. When implemented, the specific codes will be documented here.';
+
+CREATE INDEX IF NOT EXISTS wsprspots_callsign_index
+  ON public.wsprspots (callsign);
+
+CREATE INDEX IF NOT EXISTS wsprspots_reporter_index
+  ON public.wsprspots (reporter);
+
+CREATE INDEX IF NOT EXISTS wsprspots_grid_index
+  ON public.wsprspots (grid);
+
+CREATE INDEX IF NOT EXISTS wsprspots_reporter_grid_index
+  ON public.wsprspots (reporter_grid);
+
+CREATE INDEX IF NOT EXISTS wsprspots_datetime_index
+  ON public.wsprspots (datetime);
