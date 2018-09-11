@@ -35,16 +35,22 @@ class WSPRImporter:
             _logger.error("File \"%s\" not found" % self._file)
             return
 
+        ts_start = datetime.datetime.now()
+        _logger.info("Starts at %s" % str(ts_start))
+
         self._preprare_lines()
         self._preprare_csv()
         self._preprare_dbconn()
 
-        try:
-            self._import_data()
-        except psycopg2.Error as e:
-            _logger.error("ERROR importing row %d of %d: %s - %s" % (self._count, self._lines, e.pgcode, e.pgerror))
+        self._import_data()
 
         self._close_dbconn()
+
+        ts_end = datetime.datetime.now()
+        _logger.info("Ends at %s" % str(ts_end))
+
+        ts_delta = ts_end - ts_start
+        _logger.info("Duration: %s" % str(ts_delta))
 
     def _preprare_lines(self):
         fd = open(self._file, "rb")
@@ -71,19 +77,20 @@ class WSPRImporter:
               "SELECT COUNT(id) FROM wsprspots WHERE id = $1;"
         cursor.execute(sql)
 
-        sql = "PREPARE wsprspots_insert AS " \
-              "INSERT INTO wsprspots (id, datetime, reporter, reporter_grid, snr, frequency, callsign, grid, power, drift, distance, azimuth, band, sw_ver, code) " \
-              "VALUES ($1, to_timestamp($2)::timestamp without time zone, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);"
+        sql = "PREPARE " + DB_FUNCTION_INSERT + " AS " \
+                                                "INSERT INTO wsprspots (id, datetime, reporter, reporter_grid, snr, frequency, callsign, grid, power, drift, distance, azimuth, band, sw_ver, code) " \
+                                                "VALUES ($1, to_timestamp($2)::timestamp without time zone, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);"
         cursor.execute(sql)
 
-        sql = "PREPARE wsprspots_update AS " \
-              "UPDATE wsprspots SET datetime = to_timestamp($2)::timestamp without time zone, reporter = $3, reporter_grid = $4, snr = $5, " \
-              "frequency = $6, callsign = $7, grid = $8, power = $9, drift = $10, distance = $11, azimuth = $12, " \
-              "band = $13, sw_ver = $14, code = $15 " \
-              "WHERE id = $1;"
+        sql = "PREPARE " + DB_FUNCTION_UPDATE + " AS " \
+                                                "UPDATE wsprspots SET datetime = to_timestamp($2)::timestamp without time zone, reporter = $3, reporter_grid = $4, snr = $5, " \
+                                                "frequency = $6, callsign = $7, grid = $8, power = $9, drift = $10, distance = $11, azimuth = $12, " \
+                                                "band = $13, sw_ver = $14, code = $15 " \
+                                                "WHERE id = $1;"
         cursor.execute(sql)
 
     def _close_dbconn(self):
+        self._db_conn.commit()
         self._db_conn.close()
 
     def _import_data(self):
@@ -110,7 +117,7 @@ class WSPRImporter:
                 "code": int(row[14])
             }
 
-            sql = "EXECUTE wsprspots_exists(%s);"
+            sql = "EXECUTE wsprspots_exists (%s);"
             cursor.execute(sql, (values["spot_id"],))
             rows = cursor.fetchall()
 
@@ -128,25 +135,35 @@ class WSPRImporter:
                 elif db_function == DB_FUNCTION_UPDATE:
                     self._count_update += 1
 
-                sql = "EXECUTE %s (%%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s, %%s);" % db_function
+                sql = "EXECUTE " + db_function + " (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"
 
-                cursor.execute(sql, (
-                    values["spot_id"],
-                    values["timestamp"],
-                    values["reporter"],
-                    values["reporter_grid"],
-                    values["snr"],
-                    values["frequency"],
-                    values["call_sign"],
-                    values["grid"],
-                    values["power"],
-                    values["drift"],
-                    values["distance"],
-                    values["azimuth"],
-                    values["band"],
-                    values["version"],
-                    values["code"]
-                ))
+                try:
+                    cursor.execute(sql, (
+                        values["spot_id"],
+                        values["timestamp"],
+                        values["reporter"],
+                        values["reporter_grid"],
+                        values["snr"],
+                        values["frequency"],
+                        values["call_sign"],
+                        values["grid"],
+                        values["power"],
+                        values["drift"],
+                        values["distance"],
+                        values["azimuth"],
+                        values["band"],
+                        values["version"],
+                        values["code"]
+                    ))
+                except psycopg2.Error as e:
+                    _logger.error("ERROR importing row %d of %d" % (self._count, self._lines))
+                    _logger.error(" > %s - %s" % (e.pgcode, e.pgerror.strip()))
+                    _logger.error("   > %s" % row)
+
+                    for key, value in values.items():
+                        _logger.error("     > %s: %s" % (key, value))
+
+                    return
 
             if self._count % IMPORT_LOG_INTERVAL == 0:
                 self._db_conn.commit()
@@ -178,7 +195,7 @@ class WSPRImporter:
         line_info = [
             "I:%d" % self._count_insert,
             "D:%d" % self._count_update,
-            "Progress: %d%%" % count_percentage
+            "Progress: %.01f%%" % count_percentage
         ]
 
         if count_percentage < 100:
